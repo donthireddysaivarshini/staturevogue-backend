@@ -171,7 +171,8 @@ SOCIALACCOUNT_PROVIDERS = {
         'AUTH_PARAMS': {'access_type': 'online'}
     }
 }
-
+# Add this near your other SOCIALACCOUNT settings if it's not there:
+SOCIALACCOUNT_AUTO_SIGNUP = True
 # --- REST FRAMEWORK ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
