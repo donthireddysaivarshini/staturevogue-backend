@@ -15,7 +15,7 @@ urlpatterns = [
     # --- Connect the Apps ---
     path("api/auth/", include("accounts.urls")),
     path("api/store/", include("store.urls")),   # Uncomment when store app is ready
-    # path("api/orders/", include("orders.urls")), # Uncomment when orders app is ready
+    path("api/orders/", include("orders.urls")), # Uncomment when orders app is ready
     # path("api/payments/", include("payments.urls")), # Uncomment when payments app is ready
 ]
 
