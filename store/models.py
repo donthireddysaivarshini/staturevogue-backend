@@ -177,3 +177,33 @@ class Review(models.Model):
 
     def __str__(self):
         return f"{self.rating}* - {self.product.title}"
+
+class Coupon(models.Model):
+    DISCOUNT_TYPE_CHOICES = (
+        ('percentage', 'Percentage'),
+        ('fixed', 'Fixed Amount'),
+    )
+    code = models.CharField(max_length=50, unique=True)
+    discount_type = models.CharField(max_length=20, choices=DISCOUNT_TYPE_CHOICES)
+    value = models.DecimalField(max_digits=10, decimal_places=2)
+    min_order_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    valid_from = models.DateTimeField()
+    valid_to = models.DateTimeField()
+    active = models.BooleanField(default=True)
+    usage_limit = models.IntegerField(default=100)
+    uses_count = models.IntegerField(default=0)
+
+    def __str__(self):
+        return self.code
+
+class SiteConfig(models.Model):
+    shipping_flat_rate = models.DecimalField(max_digits=10, decimal_places=2, default=100.00)
+    shipping_free_above = models.DecimalField(max_digits=10, decimal_places=2, default=2000.00)
+    tax_rate_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=18.00) 
+    
+    def __str__(self):
+        return "Miscellaneous Charges Configuration"
+
+    class Meta:
+        verbose_name = "Miscellaneous Charges"
+        verbose_name_plural = "Miscellaneous Charges"

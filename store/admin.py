@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.db import models # Needed for the checkbox fix
 from django.forms import CheckboxSelectMultiple # Needed for the checkbox fix
 from .models import Category, Collection, Color, Size, Product, ProductImage, ProductVariant, Review
-
+from .models import Coupon, SiteConfig
 # --- INLINES ---
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
@@ -54,3 +54,20 @@ admin.site.register(Collection)
 admin.site.register(Color)
 admin.site.register(Size)
 # admin.site.register(Review) <--- REMOVED THIS LINE (It caused the crash)
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+    list_display = ('code', 'discount_type', 'value', 'active', 'valid_to')
+    list_filter = ('active', 'discount_type')
+
+@admin.register(SiteConfig)
+class SiteConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        'shipping_flat_rate',
+        'shipping_free_above',
+        'tax_rate_percentage',
+     )
+    def has_add_permission(self, request):
+        return True
+    
+    def has_delete_permission(self, request, obj=None):
+        return True

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Product, Category, Collection, ProductImage, ProductVariant, Color, Size, Review
+from .models import Coupon, SiteConfig
 
 # ... (Keep CategorySerializer, CollectionSerializer, ReviewSerializer as they were) ...
 class CategorySerializer(serializers.ModelSerializer):
@@ -136,3 +137,12 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_careInstructions(self, obj):
         return obj.care_instructions.split('\n') if obj.care_instructions else []
+class CouponSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Coupon
+        fields = ('id', 'code', 'discount_type', 'value', 'min_order_value', 'valid_from', 'valid_to', 'active')
+
+class SiteConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SiteConfig
+        fields = ('id', 'shipping_flat_rate', 'shipping_free_above', 'tax_rate_percentage')

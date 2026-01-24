@@ -2,6 +2,14 @@ from rest_framework import generics, permissions, serializers
 from django.db.models import Q
 from .models import Product, Category, Collection, Review
 from .serializers import ProductSerializer, CategorySerializer, CollectionSerializer, ReviewSerializer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework import status
+from django.utils import timezone
+from decimal import Decimal
+from .models import Coupon, SiteConfig
+from .serializers import SiteConfigSerializer
 
 # --- 1. PRODUCTS API ---
 class ProductListView(generics.ListAPIView):
@@ -89,3 +97,54 @@ class ProductReviewListCreateView(generics.ListCreateAPIView):
         # Use get_object_or_404 is safer, but standard get is fine if slug is valid
         product = Product.objects.get(slug=slug)
         serializer.save(product=product)
+class ValidateCouponView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        code = request.data.get('code', '').strip().upper()
+        order_total = Decimal(request.data.get('order_total', 0))
+        
+        if not code:
+            return Response({'error': 'Coupon code is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            coupon = Coupon.objects.get(code=code, active=True)
+        except Coupon.DoesNotExist:
+            return Response({'error': 'Invalid coupon code'}, status=status.HTTP_404_NOT_FOUND)
+        
+        now = timezone.now()
+        if coupon.valid_from > now or coupon.valid_to < now:
+            return Response({'error': 'Coupon has expired'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if order_total < coupon.min_order_value:
+            return Response({
+                'error': f'Minimum order value of ₹{coupon.min_order_value} required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if coupon.uses_count >= coupon.usage_limit:
+            return Response({'error': 'Coupon usage limit exceeded'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        discount = 0
+        if coupon.discount_type == 'percentage':
+            discount = (order_total * coupon.value) / 100
+        else:
+            discount = coupon.value
+        
+        return Response({
+            'success': True,
+            'discount': float(discount),
+            'discount_type': coupon.discount_type,
+            'coupon_value': float(coupon.value),
+            'message': f'Coupon applied successfully! You saved ₹{discount}'
+        }, status=status.HTTP_200_OK)
+
+class SiteConfigView(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        config = SiteConfig.objects.first()
+        if not config:
+            config = SiteConfig.objects.create()
+        
+        serializer = SiteConfigSerializer(config)
+        return Response(serializer.data, status=status.HTTP_200_OK)
