@@ -12,14 +12,14 @@ from .serializers import CartSerializer, OrderSerializer, SavedAddressSerializer
 from store.models import Product, ProductVariant, SiteConfig
 from accounts.models import SavedAddress
 
-# 🔥 IMPORT THE CORRECT PAYMENT HELPERS
+# 🔥 IMPORT PAYMENT HELPERS
 from payments.razorpay_client import (
     create_order as razorpay_create_order, 
     refund_payment, 
     verify_payment_signature 
 )
 
-# Initialize Client (Still needed for some edge cases or direct utility access)
+# Initialize Client
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # ==========================================
@@ -71,7 +71,7 @@ def update_order_status(request, pk):
     return Response({"message": "Status updated"})
 
 # ==========================================
-# 2. PAYMENT VERIFICATION (Crucial Logic)
+# 2. PAYMENT VERIFICATION (Stock Deduction)
 # ==========================================
 
 class VerifyPaymentView(views.APIView):
@@ -102,7 +102,6 @@ class VerifyPaymentView(views.APIView):
                 razorpay_signature=razorpay_signature
             )
         except Exception as e:
-            # If verification fails, mark as failed
             order.payment_status = 'Failed'
             order.save()
             return Response({"error": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
@@ -117,7 +116,7 @@ class VerifyPaymentView(views.APIView):
         # We parse the label "Color / Size" generated in CheckoutView
         for item in order.items.all():
             try:
-                # Expected format: "Blue / M"
+                # Expected format from Checkout: "Blue / M"
                 parts = item.variant_label.split(' / ')
                 if len(parts) == 2:
                     color_name = parts[0]
@@ -133,7 +132,6 @@ class VerifyPaymentView(views.APIView):
                         variant.stock -= item.quantity
                         variant.save()
                     else:
-                        # Log error but don't fail the payment since money is already taken
                         print(f"CRITICAL STOCK ERROR: Order {order.id} - Variant {variant} out of stock")
             except Exception as e:
                 print(f"Stock Deduction Error for item {item}: {e}")
@@ -155,6 +153,7 @@ def cancel_order(request, pk):
     if order.order_status in ['Shipped', 'Delivered', 'Cancelled', 'Refund Initiated']:
         return Response({"error": "Order cannot be cancelled at this stage."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Auto-Refund if Paid
     if order.payment_status == 'Paid' and order.razorpay_payment_id:
         try:
             refund_resp = refund_payment(
@@ -168,33 +167,49 @@ def cancel_order(request, pk):
             order.save()
             return Response({"status": "success", "message": "Order cancelled and refund initiated."})
         except Exception as e:
-            return Response({"error": "Cancellation failed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Cancellation failed during refund."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    # Cancel if Unpaid/COD
     order.order_status = 'Cancelled'
     order.save()
     return Response({"status": "success", "message": "Order cancelled."})
 
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
-def request_return_exchange(request, pk):
-    order = get_object_or_404(Order, pk=pk, user=request.user)
+def request_return_exchange_item(request, item_id):
+    # Find item belonging to user's order
+    item = get_object_or_404(OrderItem, id=item_id, order__user=request.user)
+    
+    # Validation
+    if item.order.order_status != 'Delivered':
+        return Response({"error": "Order must be delivered first."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if item.status != 'Ordered':
+        return Response({"error": "Request already submitted or processed."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Get Data
     action_type = request.data.get('type')
+    reason = request.data.get('reason')
+    video_file = request.FILES.get('video')
 
-    if order.order_status != 'Delivered':
-        return Response({"error": "Only delivered orders can be returned."}, status=status.HTTP_400_BAD_REQUEST)
+    if not reason or not video_file:
+        return Response({"error": "Reason and Video Proof are mandatory."}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Save
+    item.return_reason = reason
+    item.return_proof_video = video_file
+    
     if action_type == 'return':
-        order.order_status = 'Return Requested'
+        item.status = 'Return Requested'
     elif action_type == 'exchange':
-        order.order_status = 'Exchange Requested'
+        item.status = 'Exchange Requested'
     else:
         return Response({"error": "Invalid action type"}, status=status.HTTP_400_BAD_REQUEST)
     
-    order.save()
+    item.save()
     return Response({"status": "success", "message": f"{action_type.capitalize()} request submitted."})
-
 # ==========================================
-# 4. CHECKOUT (Create Order)
+# 4. CHECKOUT (Create Order) - 🔥 UPDATED
 # ==========================================
 
 class CheckoutView(views.APIView):
@@ -217,19 +232,20 @@ class CheckoutView(views.APIView):
 
         # 2. Process Items
         for line in items_payload:
-            product_id = line.get("product_id") 
+            # Frontend sends 'product_id'
+            raw_id = line.get("product_id")
             size_name = line.get("size")
-            color_name = line.get("color")
+            color_name = line.get("color") 
             quantity = int(line.get("quantity", 1) or 1)
 
-            if not product_id:
+            if not raw_id:
                 return Response({"error": "Product ID is missing"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Step A: Find Product
             try:
-                product_obj = Product.objects.get(id=product_id)
+                product_obj = Product.objects.get(id=raw_id)
             except Product.DoesNotExist:
-                return Response({"error": f"Product ID {product_id} not found"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": f"Product ID {raw_id} not found"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Step B: Find Variant
             try:
@@ -256,7 +272,7 @@ class CheckoutView(views.APIView):
 
             order_line_items.append({
                 "product_name": variant.product.title,
-                # 🔥 STANDARD FORMAT: "{Color} / {Size}" (Used in Verification to deduct stock)
+                # 🔥 STANDARD FORMAT: "{Color} / {Size}" 
                 "variant_label": f"{color_name} / {size_name}", 
                 "price": final_price,
                 "quantity": quantity,
@@ -267,15 +283,27 @@ class CheckoutView(views.APIView):
         tax_amount = (subtotal * tax_percent) / 100
         total_amount = subtotal + tax_amount + shipping_fee
 
-        # 4. Create Order
+        # 4. Create Order - 🔥 CAPTURE FULL ADDRESS
+        # Handle snake_case vs camelCase mismatch
+        first_name = request.data.get('firstName') or request.data.get('first_name', '')
+        last_name = request.data.get('lastName') or request.data.get('last_name', '')
+        
         address = request.data.get('address', '')
         apartment = request.data.get('apartment', '')
         city = request.data.get('city', '')
         state = request.data.get('state', '')
-        zip_code = request.data.get('zip_code', '')
-        country = request.data.get('country', '')
+        
+        # Handle zip_code vs pinCode
+        zip_code = request.data.get('zip_code') or request.data.get('pinCode', '')
+        
+        country = request.data.get('country', 'India')
         phone = request.data.get('phone', '')
-        shipping_addr = f"{address}\n{apartment}\n{city}, {state} - {zip_code}\n{country}".strip()
+        
+        # Construct Professional Address Block
+        shipping_addr = f"{first_name} {last_name}\n{address}"
+        if apartment:
+            shipping_addr += f"\n{apartment}"
+        shipping_addr += f"\n{city}, {state} - {zip_code}\n{country}".strip()
 
         order = Order.objects.create(
             user=request.user,
@@ -315,7 +343,7 @@ class CheckoutView(views.APIView):
         }, status=status.HTTP_201_CREATED)
 
 # ==========================================
-# 5. CART MANAGEMENT
+# 5. CART MANAGEMENT (Keep existing)
 # ==========================================
 
 class CartView(views.APIView):
@@ -332,7 +360,6 @@ class AddToCartView(views.APIView):
         cart, _ = Cart.objects.get_or_create(user=request.user)
         variant = get_object_or_404(ProductVariant, id=variant_id)
         
-        # Check stock before adding
         if variant.stock < quantity:
             return Response({"error": "Not enough stock available"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -351,7 +378,7 @@ class RemoveCartItemView(views.APIView):
         return Response(CartSerializer(cart).data)
 
 # ==========================================
-# 6. SAVED ADDRESSES
+# 6. SAVED ADDRESSES (Keep existing)
 # ==========================================
 
 class SavedAddressListCreateView(generics.ListCreateAPIView):

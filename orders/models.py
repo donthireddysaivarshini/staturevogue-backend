@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from store.models import ProductVariant
+from store.models import ProductVariant,Coupon
 
 # --- CART MODELS ---
 class Cart(models.Model):
@@ -31,6 +31,7 @@ class Order(models.Model):
         ('Pending', 'Pending'),
         ('Paid', 'Paid'),
         ('Refunded', 'Refunded'), # ✅ Added
+        ('Failed', 'Failed'),
     )
     
     ORDER_STATUS_CHOICES = (
@@ -40,16 +41,7 @@ class Order(models.Model):
         ('Delivered', 'Delivered'),
         ('Cancelled', 'Cancelled'), # ✅ Added
         
-        # Return Flow
-        ('Return Requested', 'Return Requested'), # ✅ Added
-        ('Return Approved', 'Return Approved'),
-        ('Returned', 'Returned'),
-        ('Refund Initiated', 'Refund Initiated'),
-        
-        # Exchange Flow
-        ('Exchange Requested', 'Exchange Requested'), # ✅ Added
-        ('Exchange Approved', 'Exchange Approved'),
-        ('Exchange Shipped', 'Exchange Shipped'),
+       
     )
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
@@ -70,18 +62,40 @@ class Order(models.Model):
     
     # ✅ New: Refund Tracking
     razorpay_refund_id = models.CharField(max_length=255, blank=True, null=True)
+
     
     created_at = models.DateTimeField(auto_now_add=True)
-
+    
     def __str__(self):
         return f"Order #{self.id} - {self.order_status}"
 
 class OrderItem(models.Model):
+    ITEM_STATUS_CHOICES = (
+        ('Ordered', 'Ordered'),
+        ('Return Requested', 'Return Requested'),
+        ('Return Approved', 'Return Approved'),
+        ('Return Rejected', 'Return Rejected'),
+        ('Returned', 'Returned'),
+        ('Exchange Requested', 'Exchange Requested'),
+        ('Exchange Approved', 'Exchange Approved'),
+        ('Exchange Rejected', 'Exchange Rejected'),
+        ('Exchanged', 'Exchanged'),
+    )
     order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
     product_name = models.CharField(max_length=255)
     variant_label = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
 
-    def __str__(self):
-        return f"{self.quantity} x {self.product_name}"
+    status = models.CharField(max_length=30, choices=ITEM_STATUS_CHOICES, default='Ordered')
+
+    # Proof / Reason for specific item
+    return_reason = models.TextField(blank=True, null=True)
+    return_proof_video = models.FileField(upload_to='returns/videos/', blank=True, null=True)
+    admin_comment = models.TextField(blank=True, null=True)
+
+    # Coupon for this specific item exchange
+    exchange_coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True)
+
+def __str__(self):
+        return f"{self.quantity} x {self.product_name} ({self.status})"

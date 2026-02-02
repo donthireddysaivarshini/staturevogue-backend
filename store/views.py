@@ -14,6 +14,7 @@ from .serializers import SiteConfigSerializer
 # --- 1. PRODUCTS API ---
 class ProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         queryset = Product.objects.filter(is_active=True).prefetch_related('images', 'variants')
@@ -38,9 +39,17 @@ class ProductListView(generics.ListAPIView):
 
         search = self.request.query_params.get('search')
         if search:
-            queryset = queryset.filter(Q(title__icontains=search) | Q(description__icontains=search))
+            # 🔥 UPDATED SEARCH LOGIC
+            # 1. Search in Title
+            # 2. Search in Description
+            # 3. Search in Variant SKUs (Product Codes)
+            queryset = queryset.filter(
+                Q(title__icontains=search) | 
+                Q(description__icontains=search) |
+                Q(variants__sku__icontains=search) # <--- Added SKU Search
+            ).distinct() # Distinct is important because joining variants can duplicate rows
 
-        return queryset.distinct()
+        return queryset
 
 class ProductDetailView(generics.RetrieveAPIView):
     queryset = Product.objects.all()

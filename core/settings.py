@@ -173,6 +173,19 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 # Add this near your other SOCIALACCOUNT settings if it's not there:
 SOCIALACCOUNT_AUTO_SIGNUP = True
+SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_USERNAME_REQUIRED = False 
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_REQUIRED = True
+SOCIALACCOUNT_QUERY_EMAIL = True
+
+# 🔥 CRITICAL: Allow existing users to login via Social if email matches
+SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
+
+# Ensure this is also set (usually is default, but good to be explicit)
+SOCIALACCOUNT_ADAPTER = 'allauth.socialaccount.adapter.DefaultSocialAccountAdapter'
 # --- REST FRAMEWORK ---
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -198,3 +211,9 @@ JAZZMIN_SETTINGS = {
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+if DEBUG:
+    # Development Frontend URL
+    FRONTEND_URL = "http://localhost:5173"
+else:
+    # Production Frontend URL (CHANGE THIS later when you deploy)
+    FRONTEND_URL = "https://your-production-domain.com"

@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from django.conf import settings
 
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -70,33 +71,52 @@ class SavedAddressViewSet(viewsets.ModelViewSet):
 
 class CustomGoogleOAuth2Client(OAuth2Client):
     def __init__(self, *args, **kwargs):
+        # Google expects spaces, not commas, for scopes. 
+        # OAuth2Client defaults to space, but some versions force comma.
+        # This ensures we use the default (space) or strip the argument.
         if "scope_delimiter" in kwargs:
             del kwargs["scope_delimiter"]
         super().__init__(*args, **kwargs)
 
-    # --- DEBUGGING FUNCTION ---
-    def get_access_token(self, code):
-        try:
-            return super().get_access_token(code)
-        except Exception as e:
-            # THIS WILL PRINT THE REAL ERROR IN YOUR TERMINAL
-            print("--------------------------------------------------")
-            print("!!! GOOGLE ERROR DETAILS !!!")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"Status Code: {e.response.status_code}")
-                print(f"Google says: {e.response.text}") # <--- READ THIS
-            else:
-                print(f"Error: {e}")
-            print("--------------------------------------------------")
-            raise e
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    client_class = CustomGoogleOAuth2Client  # Use our patched client
+    client_class = CustomGoogleOAuth2Client
     
-    # Force the callback_url to be 'postmessage'
-    # This matches what React's useGoogleLogin hook sends.
+    # Define it here for safety
     callback_url = "postmessage"
 
+    def post(self, request, *args, **kwargs):
+        # 🔥 CRITICAL FIX: 
+        # The serializer validates 'callback_url'. If it's missing from the frontend payload,
+        # it might fail validation before checking the view attribute.
+        # We force it into the data here.
+        try:
+            # Handle QueryDict (mutable) vs Dict
+            if hasattr(request.data, '_mutable'):
+                request.data._mutable = True
+                request.data['callback_url'] = "postmessage"
+                request.data._mutable = False
+            else:
+                request.data['callback_url'] = "postmessage"
+        except Exception as e:
+            print(f"⚠️ Could not inject callback_url: {e}")
+
+        # Call the standard logic
+        response = super().post(request, *args, **kwargs)
+
+        # Debugging: If it STILL fails, print why
+        if response.status_code == 400:
+            print("------------------------------------------------")
+            print("❌ VALIDATION FAILED (Internal Django/Serializer Error)")
+            print(f"Sent Code: {request.data.get('code')}")
+            # If serializer exists, print its errors
+            if hasattr(self, 'serializer') and self.serializer:
+                print(f"Validation Errors: {self.serializer.errors}")
+            else:
+                print(f"Response Data: {response.data}")
+            print("------------------------------------------------")
+        
+        return response
     def get_serializer_context(self):
         """
         Force 'postmessage' into the validator context.
