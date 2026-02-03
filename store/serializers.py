@@ -145,4 +145,4 @@ class CouponSerializer(serializers.ModelSerializer):
 class SiteConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteConfig
-        fields = ('id', 'shipping_flat_rate', 'shipping_free_above', 'tax_rate_percentage')
+        fields = ('id', 'shipping_flat_rate', 'shipping_free_above', 'tax_rate_percentage','cod_extra_fee')

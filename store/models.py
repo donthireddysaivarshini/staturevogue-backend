@@ -200,7 +200,7 @@ class SiteConfig(models.Model):
     shipping_flat_rate = models.DecimalField(max_digits=10, decimal_places=2, default=100.00)
     shipping_free_above = models.DecimalField(max_digits=10, decimal_places=2, default=2000.00)
     tax_rate_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=18.00) 
-    
+    cod_extra_fee = models.DecimalField(max_digits=10, decimal_places=2, default=50.00, help_text="Extra charge for Cash on Delivery")
     def __str__(self):
         return "Miscellaneous Charges Configuration"
 

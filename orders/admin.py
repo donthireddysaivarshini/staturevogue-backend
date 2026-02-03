@@ -24,7 +24,7 @@ class OrderItemInline(admin.TabularInline):
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_per_page = 20
-    list_display = ('id', 'user_email', 'total_amount', 'payment_status_badge', 'order_status', 'created_at','request_alert','payment_method_badge', # <--- NEW
+    list_display = ('id', 'user_email', 'total_amount', 'payment_status_badge', 'order_status', 'created_at','request_alert','payment_method_badge','tracking_link', # <--- NEW
         )
     list_filter = ('payment_method','payment_status', 'order_status', 'created_at')
     def payment_method_badge(self, obj):
@@ -47,7 +47,7 @@ class OrderAdmin(admin.ModelAdmin):
     search_fields = ('user__email', 'razorpay_order_id', 'id')
     
     # Dropdown to change status in the list view (Optional)
-    list_editable = ('order_status',)
+    list_editable = ('order_status', 'tracking_link')
 
     # 🔥 FIXED: Removed 'return_reason' etc. since they are now on OrderItem
     readonly_fields = ('user', 'total_amount', 'created_at', 'razorpay_order_id', 'razorpay_payment_id', 'razorpay_signature', 'razorpay_refund_id')

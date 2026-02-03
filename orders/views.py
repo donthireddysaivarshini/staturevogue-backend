@@ -229,7 +229,7 @@ class CheckoutView(views.APIView):
         shipping_flat = config.shipping_flat_rate if config else 100
         free_shipping_limit = config.shipping_free_above if config else 2000
         tax_percent = config.tax_rate_percentage if config else 18
-
+        cod_fee = config.cod_extra_fee if config else 50
         subtotal = Decimal("0.00")
         order_line_items = []
 
@@ -239,7 +239,7 @@ class CheckoutView(views.APIView):
             size_name = line.get("size")
             color_name = line.get("color") 
             quantity = int(line.get("quantity", 1) or 1)
-
+            
             if not raw_id:
                 return Response({"error": "Product ID is missing"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -284,6 +284,9 @@ class CheckoutView(views.APIView):
         shipping_fee = 0 if subtotal >= free_shipping_limit else shipping_flat
         tax_amount = (subtotal * tax_percent) / 100
         total_amount = subtotal + tax_amount + shipping_fee
+
+        if payment_method == 'COD':
+            total_amount += cod_fee
 
         # 4. Create Order
         first_name = request.data.get('firstName') or request.data.get('first_name', '')
@@ -340,7 +343,8 @@ class CheckoutView(views.APIView):
                 "id": order.id,
                 "message": "Order placed successfully via Cash on Delivery!",
                 "payment_method": "COD",
-                "order_status": order.order_status
+                "order_status": order.order_status,
+                "total_amount": total_amount,
             }, status=status.HTTP_201_CREATED)
 
         else:

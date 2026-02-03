@@ -99,7 +99,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = (
             "id", "total_amount", "payment_status", "order_status",
             "razorpay_order_id", "razorpay_payment_id", "razorpay_refund_id",
-            "created_at", "date", "shipping_address", "phone", "items"
+            "created_at", "date", "shipping_address", "phone", "items","tracking_link"
         )
         read_only_fields = ('user', 'payment_status', 'order_status', 'razorpay_order_id')
 

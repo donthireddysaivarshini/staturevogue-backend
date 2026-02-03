@@ -50,7 +50,7 @@ class Order(models.Model):
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
     payment_method = models.CharField(max_length=10, choices=PAYMENT_METHOD_CHOICES, default='Online')
-    
+    tracking_link = models.URLField(max_length=500, blank=True, null=True, help_text="Paste shipment tracking URL here")
     # Shipping Info
     shipping_address = models.TextField()
     phone = models.CharField(max_length=20)
