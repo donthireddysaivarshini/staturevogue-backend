@@ -208,8 +208,9 @@ def request_return_exchange_item(request, item_id):
     
     item.save()
     return Response({"status": "success", "message": f"{action_type.capitalize()} request submitted."})
+
 # ==========================================
-# 4. CHECKOUT (Create Order) - 🔥 UPDATED
+# 4. CHECKOUT (Create Order) - 🔥 UPDATED FOR COD
 # ==========================================
 
 class CheckoutView(views.APIView):
@@ -218,6 +219,8 @@ class CheckoutView(views.APIView):
     @transaction.atomic
     def post(self, request):
         items_payload = request.data.get("items")
+        payment_method = request.data.get("payment_method", "Online") # 🔥 Get Payment Method
+
         if not items_payload:
             return Response({"error": "No items provided"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -232,7 +235,6 @@ class CheckoutView(views.APIView):
 
         # 2. Process Items
         for line in items_payload:
-            # Frontend sends 'product_id'
             raw_id = line.get("product_id")
             size_name = line.get("size")
             color_name = line.get("color") 
@@ -272,10 +274,10 @@ class CheckoutView(views.APIView):
 
             order_line_items.append({
                 "product_name": variant.product.title,
-                # 🔥 STANDARD FORMAT: "{Color} / {Size}" 
                 "variant_label": f"{color_name} / {size_name}", 
                 "price": final_price,
                 "quantity": quantity,
+                "variant_obj": variant # Keep ref to deduct stock for COD
             })
 
         # 3. Totals
@@ -283,27 +285,26 @@ class CheckoutView(views.APIView):
         tax_amount = (subtotal * tax_percent) / 100
         total_amount = subtotal + tax_amount + shipping_fee
 
-        # 4. Create Order - 🔥 CAPTURE FULL ADDRESS
-        # Handle snake_case vs camelCase mismatch
+        # 4. Create Order
         first_name = request.data.get('firstName') or request.data.get('first_name', '')
         last_name = request.data.get('lastName') or request.data.get('last_name', '')
-        
         address = request.data.get('address', '')
         apartment = request.data.get('apartment', '')
         city = request.data.get('city', '')
         state = request.data.get('state', '')
-        
-        # Handle zip_code vs pinCode
         zip_code = request.data.get('zip_code') or request.data.get('pinCode', '')
-        
         country = request.data.get('country', 'India')
         phone = request.data.get('phone', '')
         
-        # Construct Professional Address Block
         shipping_addr = f"{first_name} {last_name}\n{address}"
         if apartment:
             shipping_addr += f"\n{apartment}"
         shipping_addr += f"\n{city}, {state} - {zip_code}\n{country}".strip()
+
+        # 🔥 Determine Status based on Method
+        # COD -> 'Pending' Payment, 'Processing' Order (Confirmed)
+        # Online -> 'Pending' Payment, 'Pending' Order (Until Verified)
+        initial_order_status = 'Processing' if payment_method == 'COD' else 'Pending'
 
         order = Order.objects.create(
             user=request.user,
@@ -311,7 +312,8 @@ class CheckoutView(views.APIView):
             phone=phone,
             total_amount=total_amount,
             payment_status='Pending',
-            order_status='Processing'
+            order_status=initial_order_status, 
+            payment_method=payment_method # 🔥 Save Method (Ensure model has this field)
         )
 
         for item in order_line_items:
@@ -322,30 +324,46 @@ class CheckoutView(views.APIView):
                 price=item["price"],
                 quantity=item["quantity"],
             )
+            
+            # 🔥 DEDUCT STOCK IMMEDIATELY FOR COD
+            if payment_method == 'COD':
+                variant = item['variant_obj']
+                variant.stock -= item['quantity']
+                variant.save()
 
-        # 5. Create Razorpay Order
-        try:
-            rzp_order = razorpay_create_order(total_amount, currency="INR")
-        except Exception as exc:
-            return Response({"error": "Failed to create Razorpay order", "details": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        # 5. Response Logic
+        if payment_method == 'COD':
+            # Clear Cart for COD immediately
+            Cart.objects.filter(user=request.user).delete()
+            
+            return Response({
+                "id": order.id,
+                "message": "Order placed successfully via Cash on Delivery!",
+                "payment_method": "COD",
+                "order_status": order.order_status
+            }, status=status.HTTP_201_CREATED)
 
-        order.razorpay_order_id = rzp_order.get("id")
-        order.save()
+        else:
+            # Online: Create Razorpay Order
+            try:
+                rzp_order = razorpay_create_order(total_amount, currency="INR")
+            except Exception as exc:
+                return Response({"error": "Failed to create Razorpay order", "details": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        return Response({
-            "id": order.id,
-            "razorpay_order_id": order.razorpay_order_id,
-            "amount": rzp_order.get("amount"),
-            "currency": "INR",
-            "key": getattr(settings, "RAZORPAY_KEY_ID", ""),
-            "order_status": order.order_status,
-            "payment_status": order.payment_status,
-        }, status=status.HTTP_201_CREATED)
+            order.razorpay_order_id = rzp_order.get("id")
+            order.save()
 
-# ==========================================
-# 5. CART MANAGEMENT (Keep existing)
-# ==========================================
+            return Response({
+                "id": order.id,
+                "razorpay_order_id": order.razorpay_order_id,
+                "amount": rzp_order.get("amount"),
+                "currency": "INR",
+                "key": getattr(settings, "RAZORPAY_KEY_ID", ""),
+                "payment_method": "Online",
+                "order_status": order.order_status,
+            }, status=status.HTTP_201_CREATED)
 
+# ... (Keep Cart & Address Views Unchanged) ...
 class CartView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request):
@@ -376,10 +394,6 @@ class RemoveCartItemView(views.APIView):
         cart_item.delete()
         cart = Cart.objects.get(user=request.user)
         return Response(CartSerializer(cart).data)
-
-# ==========================================
-# 6. SAVED ADDRESSES (Keep existing)
-# ==========================================
 
 class SavedAddressListCreateView(generics.ListCreateAPIView):
     serializer_class = SavedAddressSerializer

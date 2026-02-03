@@ -43,8 +43,13 @@ class Order(models.Model):
         
        
     )
+    PAYMENT_METHOD_CHOICES = (
+        ('Online', 'Online (Razorpay)'),
+        ('COD', 'Cash on Delivery'),
+    )
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='orders')
+    payment_method = models.CharField(max_length=10, choices=PAYMENT_METHOD_CHOICES, default='Online')
     
     # Shipping Info
     shipping_address = models.TextField()

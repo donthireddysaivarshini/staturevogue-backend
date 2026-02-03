@@ -1,0 +1,14 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools %}
+    <div style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; display: flex; align-items: center; justify-content: space-between;">
+        <span>
+            <strong>🔔 NOTICE:</strong> New orders or status changes may not appear instantly. 
+            Please <strong>refresh this page</strong> to see the latest updates.
+        </span>
+        <button onclick="window.location.reload();" style="background: #856404; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; font-weight: bold;">
+            ↻ Refresh Now
+        </button>
+    </div>
+    {{ block.super }}
+{% endblock %}

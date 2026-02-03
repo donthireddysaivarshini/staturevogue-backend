@@ -17,6 +17,7 @@ urlpatterns = [
     path("api/store/", include("store.urls")),   # Uncomment when store app is ready
     path("api/orders/", include("orders.urls")), # Uncomment when orders app is ready
     path('accounts/', include('allauth.urls')),
+    path('api/content/', include('web_content.urls'))
 ]
 
 

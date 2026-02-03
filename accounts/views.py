@@ -7,9 +7,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status,serializers
 from rest_framework.decorators import action
 from django.conf import settings
+from rest_framework.exceptions import ValidationError
+
 
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -54,15 +56,21 @@ class SavedAddressViewSet(viewsets.ModelViewSet):
         return SavedAddress.objects.filter(user=self.request.user).order_by('-is_default', '-created_at')
 
     def perform_create(self, serializer):
-        # serializer.create will use request from context to attach user
-        serializer.save()
+       user_address_count = SavedAddress.objects.filter(user=self.request.user).count()
+       if user_address_count >= 3:
+            raise ValidationError({"error": "You cannot save more than 3 addresses."})
+        
+       serializer.save(user=self.request.user)
 
     @action(detail=True, methods=['post'], url_path='set-default')
     def set_default(self, request, pk=None):
         addr = self.get_object()
-        # Only owner can set default; get_object ensures queryset is user-scoped
+        # Set this one to true, others will auto-update via Model save() logic if you have it, 
+        # or we manually unset others here:
+        SavedAddress.objects.filter(user=request.user).update(is_default=False)
         addr.is_default = True
-        addr.save()  # model.save will unset others
+        addr.save()
+        
         serializer = self.get_serializer(addr)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

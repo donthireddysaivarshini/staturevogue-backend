@@ -23,8 +23,17 @@ class OrderItemInline(admin.TabularInline):
 # --- ORDER ADMIN ---
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user_email', 'total_amount', 'payment_status_badge', 'order_status', 'created_at','request_alert',)
-    list_filter = ('payment_status', 'order_status', 'created_at')
+    list_per_page = 20
+    list_display = ('id', 'user_email', 'total_amount', 'payment_status_badge', 'order_status', 'created_at','request_alert','payment_method_badge', # <--- NEW
+        )
+    list_filter = ('payment_method','payment_status', 'order_status', 'created_at')
+    def payment_method_badge(self, obj):
+        if obj.payment_method == 'COD':
+            return format_html('<b style="color:#1F2B5B;">📦 COD</b>')
+        return format_html('<span style="color:purple;">💳 Online</span>')
+    payment_method_badge.short_description = "Method"
+
+    
     def request_alert(self, obj):
         pending_count = obj.items.filter(status__in=['Return Requested', 'Exchange Requested']).count()
         if pending_count > 0:

@@ -58,7 +58,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ("id", "product_name", "product_slug", "variant_label", "price", "quantity", "image", "status", "exchange_coupon_code")
+        fields = ("id", "product_name", "product_slug", "variant_label", "price", "quantity", "image", "status", "exchange_coupon_code","admin_comment")
 
     def get_product_slug(self, obj):
         # Safely try to find product, fallback to name slug
