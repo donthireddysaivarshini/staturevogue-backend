@@ -218,3 +218,8 @@ if DEBUG:
 else:
     # Production Frontend URL (CHANGE THIS later when you deploy)
     FRONTEND_URL = "https://your-production-domain.com"
+
+# Twilio Configuration (Read from Env)
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_WHATSAPP_NUMBER = os.getenv('TWILIO_WHATSAPP_NUMBER', 'whatsapp:+14155238886')

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import Order, OrderItem, Cart, CartItem
-
+from payments.razorpay_client import refund_payment
 # --- INLINE ITEMS (This is where Return/Exchange happens now) ---
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
@@ -23,6 +23,7 @@ class OrderItemInline(admin.TabularInline):
 # --- ORDER ADMIN ---
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
+    ctions = ['process_refund_return']
     list_per_page = 20
     list_display = ('id', 'user_email', 'total_amount', 'payment_status_badge', 'order_status', 'created_at','request_alert','payment_method_badge','tracking_link', # <--- NEW
         )
@@ -33,7 +34,42 @@ class OrderAdmin(admin.ModelAdmin):
         return format_html('<span style="color:purple;">💳 Online</span>')
     payment_method_badge.short_description = "Method"
 
-    
+    @admin.action(description='💰 Process Razorpay Refund (For Returns)')
+    def process_refund_return(self, request, queryset):
+        for order in queryset:
+            # Case 1: Already Refunded
+            if order.payment_status == 'Refunded':
+                self.message_user(request, f"Order #{order.id} is already refunded.", messages.WARNING)
+                continue
+
+            # Case 2: Online Payment (Hit Razorpay API)
+            if order.payment_method == 'Online' and order.payment_status == 'Paid':
+                try:
+                    refund_resp = refund_payment(
+                        payment_id=order.razorpay_payment_id,
+                        amount=float(order.total_amount),
+                        notes={"reason": "Admin processed return"}
+                    )
+                    order.razorpay_refund_id = refund_resp.get('id')
+                    order.payment_status = 'Refunded'
+                    order.order_status = 'Refunded'
+                    order.refunded_at = timezone.now()
+                    order.save()
+                    self.message_user(request, f"✅ Auto-Refund successful for Order #{order.id}", messages.SUCCESS)
+                except Exception as e:
+                    self.message_user(request, f"❌ Razorpay Error for Order #{order.id}: {str(e)}", messages.ERROR)
+
+            # Case 3: COD Payment (Manual Refund)
+            elif order.payment_method == 'COD' and order.order_status == 'Delivered':
+                # For COD, we assume Admin has manually transferred money via UPI/Bank
+                order.payment_status = 'Refunded'
+                order.order_status = 'Refunded'
+                order.refunded_at = timezone.now()
+                order.save()
+                self.message_user(request, f"✅ Marked Order #{order.id} (COD) as Refunded manually.", messages.SUCCESS)
+            
+            else:
+                self.message_user(request, f"⚠️ Order #{order.id} cannot be refunded (Status: {order.order_status})", messages.WARNING)
     def request_alert(self, obj):
         pending_count = obj.items.filter(status__in=['Return Requested', 'Exchange Requested']).count()
         if pending_count > 0:

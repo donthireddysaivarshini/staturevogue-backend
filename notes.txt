@@ -1,0 +1,13 @@
+pip install django djangorestframework django-cors-headers razorpay requests pillow python-dotenv
+pip install django-allauth dj-rest-auth djangorestframework-simplejwt django-jazzmin python-dotenv google-auth
+pip install cryptography
+pip install requests
+
+settings change:
+  FRONTEND_URL = "https://your-production-domain.com"
+pip install twilio
+
+Email: admin@staturevogue.com
+Password:admin123
+
+pip install python-dotenv

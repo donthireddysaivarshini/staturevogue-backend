@@ -5,4 +5,4 @@ class OrdersConfig(AppConfig):
     name = 'orders'
 
     def ready(self):
-        import orders.signals  # 🔥 CRITICAL: This line loads the signals
+        import orders.signals  # This loads the signals!

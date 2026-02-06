@@ -6,7 +6,7 @@ from django.db import transaction
 from rest_framework import generics, status, views, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-
+from django.utils import timezone
 from .models import Cart, CartItem, Order, OrderItem
 from .serializers import CartSerializer, OrderSerializer, SavedAddressSerializer
 from store.models import Product, ProductVariant, SiteConfig
@@ -164,6 +164,7 @@ def cancel_order(request, pk):
             order.razorpay_refund_id = refund_resp.get('id')
             order.payment_status = 'Refunded'
             order.order_status = 'Cancelled'
+            order.refunded_at = timezone.now()
             order.save()
             return Response({"status": "success", "message": "Order cancelled and refund initiated."})
         except Exception as e:

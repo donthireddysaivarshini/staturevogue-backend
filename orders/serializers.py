@@ -93,15 +93,20 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     date = serializers.SerializerMethodField()
+    refunded_date = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = (
             "id", "total_amount", "payment_status", "order_status",
             "razorpay_order_id", "razorpay_payment_id", "razorpay_refund_id",
-            "created_at", "date", "shipping_address", "phone", "items","tracking_link"
+            "created_at", "date", "shipping_address", "phone", "items","tracking_link","refunded_at", "refunded_date"
         )
         read_only_fields = ('user', 'payment_status', 'order_status', 'razorpay_order_id')
 
     def get_date(self, obj):
         return obj.created_at.strftime("%b %d, %Y")
+    def get_refunded_date(self, obj):
+        if obj.refunded_at:
+            return obj.refunded_at.strftime("%b %d, %Y")
+        return None

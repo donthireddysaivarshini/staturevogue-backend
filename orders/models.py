@@ -67,7 +67,7 @@ class Order(models.Model):
     
     # ✅ New: Refund Tracking
     razorpay_refund_id = models.CharField(max_length=255, blank=True, null=True)
-
+    refunded_at = models.DateTimeField(null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     
