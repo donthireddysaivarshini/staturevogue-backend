@@ -23,7 +23,7 @@ from payments.razorpay_client import (
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # ==========================================
-# 1. ORDER MANAGEMENT (List, Status, Update)
+# 1. ORDER MANAGEMENT
 # ==========================================
 
 class UserOrdersView(generics.ListAPIView):
@@ -37,9 +37,6 @@ class UserOrdersView(generics.ListAPIView):
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def order_status(request, pk):
-    """
-    GET /orders/<pk>/status/ -> Used by frontend polling to check payment status
-    """
     try:
         order = Order.objects.get(pk=pk, user=request.user)
     except Order.DoesNotExist:
@@ -56,9 +53,8 @@ def order_status(request, pk):
 @api_view(["PATCH"])
 @permission_classes([permissions.IsAuthenticated])
 def update_order_status(request, pk):
-    """Admin endpoint to update order status."""
     try:
-        order = Order.objects.get(pk=pk) # Admin can access any order
+        order = Order.objects.get(pk=pk)
     except Order.DoesNotExist:
         return Response({"detail": "Order not found"}, status=404)
     
@@ -71,7 +67,7 @@ def update_order_status(request, pk):
     return Response({"message": "Status updated"})
 
 # ==========================================
-# 2. PAYMENT VERIFICATION (Stock Deduction)
+# 2. PAYMENT VERIFICATION
 # ==========================================
 
 class VerifyPaymentView(views.APIView):
@@ -84,9 +80,7 @@ class VerifyPaymentView(views.APIView):
         razorpay_payment_id = data.get('razorpay_payment_id')
         razorpay_signature = data.get('razorpay_signature')
 
-        # 1. Get the Order
         try:
-            # Lock the row to prevent race conditions
             order = Order.objects.select_for_update().get(razorpay_order_id=razorpay_order_id)
         except Order.DoesNotExist:
             return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -94,7 +88,6 @@ class VerifyPaymentView(views.APIView):
         if order.payment_status == 'Paid':
              return Response({"message": "Order already processed"}, status=status.HTTP_200_OK)
 
-        # 2. Verify Signature
         try:
             verify_payment_signature(
                 razorpay_order_id=razorpay_order_id,
@@ -106,17 +99,14 @@ class VerifyPaymentView(views.APIView):
             order.save()
             return Response({"error": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Success! Update Order Status
         order.payment_status = 'Paid'
         order.order_status = 'Processing'
         order.razorpay_payment_id = razorpay_payment_id
         order.save()
 
-        # 4. 🔥 DEDUCT STOCK
-        # We parse the label "Color / Size" generated in CheckoutView
+        # Deduct Stock
         for item in order.items.all():
             try:
-                # Expected format from Checkout: "Blue / M"
                 parts = item.variant_label.split(' / ')
                 if len(parts) == 2:
                     color_name = parts[0]
@@ -131,18 +121,14 @@ class VerifyPaymentView(views.APIView):
                     if variant.stock >= item.quantity:
                         variant.stock -= item.quantity
                         variant.save()
-                    else:
-                        print(f"CRITICAL STOCK ERROR: Order {order.id} - Variant {variant} out of stock")
             except Exception as e:
                 print(f"Stock Deduction Error for item {item}: {e}")
 
-        # 5. Clear Cart
         Cart.objects.filter(user=request.user).delete()
-
         return Response({"message": "Payment verified and Order Placed"}, status=status.HTTP_200_OK)
 
 # ==========================================
-# 3. ACTIONS (Cancel, Return, Exchange)
+# 3. ACTIONS
 # ==========================================
 
 @api_view(["POST"])
@@ -153,13 +139,13 @@ def cancel_order(request, pk):
     if order.order_status in ['Shipped', 'Delivered', 'Cancelled', 'Refund Initiated']:
         return Response({"error": "Order cannot be cancelled at this stage."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Auto-Refund if Paid
+    # Auto-Refund ONLY for Pre-Delivery Cancellation
     if order.payment_status == 'Paid' and order.razorpay_payment_id:
         try:
             refund_resp = refund_payment(
                 payment_id=order.razorpay_payment_id,
                 amount=float(order.total_amount),
-                notes={"reason": "User requested cancellation"}
+                notes={"reason": "User requested cancellation (Pre-Delivery)"}
             )
             order.razorpay_refund_id = refund_resp.get('id')
             order.payment_status = 'Refunded'
@@ -170,7 +156,6 @@ def cancel_order(request, pk):
         except Exception as e:
             return Response({"error": "Cancellation failed during refund."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # Cancel if Unpaid/COD
     order.order_status = 'Cancelled'
     order.save()
     return Response({"status": "success", "message": "Order cancelled."})
@@ -178,17 +163,14 @@ def cancel_order(request, pk):
 @api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def request_return_exchange_item(request, item_id):
-    # Find item belonging to user's order
     item = get_object_or_404(OrderItem, id=item_id, order__user=request.user)
     
-    # Validation
     if item.order.order_status != 'Delivered':
         return Response({"error": "Order must be delivered first."}, status=status.HTTP_400_BAD_REQUEST)
 
     if item.status != 'Ordered':
         return Response({"error": "Request already submitted or processed."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Get Data
     action_type = request.data.get('type')
     reason = request.data.get('reason')
     video_file = request.FILES.get('video')
@@ -196,7 +178,6 @@ def request_return_exchange_item(request, item_id):
     if not reason or not video_file:
         return Response({"error": "Reason and Video Proof are mandatory."}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Save
     item.return_reason = reason
     item.return_proof_video = video_file
     
@@ -211,7 +192,7 @@ def request_return_exchange_item(request, item_id):
     return Response({"status": "success", "message": f"{action_type.capitalize()} request submitted."})
 
 # ==========================================
-# 4. CHECKOUT (Create Order) - 🔥 UPDATED FOR COD
+# 4. CHECKOUT (Fixed Shipping Update)
 # ==========================================
 
 class CheckoutView(views.APIView):
@@ -220,15 +201,17 @@ class CheckoutView(views.APIView):
     @transaction.atomic
     def post(self, request):
         items_payload = request.data.get("items")
-        payment_method = request.data.get("payment_method", "Online") # 🔥 Get Payment Method
+        payment_method = request.data.get("payment_method", "Online")
 
         if not items_payload:
             return Response({"error": "No items provided"}, status=status.HTTP_400_BAD_REQUEST)
 
         # 1. Fetch Site Config
         config = SiteConfig.objects.first()
-        shipping_flat = config.shipping_flat_rate if config else 100
-        free_shipping_limit = config.shipping_free_above if config else 2000
+        
+        # 🔥 CHANGE: Always apply flat rate. No free shipping logic anymore.
+        shipping_fee = config.shipping_flat_rate if config else 100 
+        
         tax_percent = config.tax_rate_percentage if config else 18
         cod_fee = config.cod_extra_fee if config else 50
         subtotal = Decimal("0.00")
@@ -244,13 +227,11 @@ class CheckoutView(views.APIView):
             if not raw_id:
                 return Response({"error": "Product ID is missing"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Step A: Find Product
             try:
                 product_obj = Product.objects.get(id=raw_id)
             except Product.DoesNotExist:
                 return Response({"error": f"Product ID {raw_id} not found"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Step B: Find Variant
             try:
                 variant = ProductVariant.objects.get(
                     product=product_obj, 
@@ -263,7 +244,6 @@ class CheckoutView(views.APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # Step C: Check Stock
             if variant.stock < quantity:
                 return Response(
                     {"error": f"Out of stock: {variant.product.title} ({color_name}/{size_name})"},
@@ -278,12 +258,12 @@ class CheckoutView(views.APIView):
                 "variant_label": f"{color_name} / {size_name}", 
                 "price": final_price,
                 "quantity": quantity,
-                "variant_obj": variant # Keep ref to deduct stock for COD
+                "variant_obj": variant
             })
 
         # 3. Totals
-        shipping_fee = 0 if subtotal >= free_shipping_limit else shipping_flat
         tax_amount = (subtotal * tax_percent) / 100
+        # 🔥 SHIPPING IS NOW ALWAYS ADDED
         total_amount = subtotal + tax_amount + shipping_fee
 
         if payment_method == 'COD':
@@ -305,9 +285,6 @@ class CheckoutView(views.APIView):
             shipping_addr += f"\n{apartment}"
         shipping_addr += f"\n{city}, {state} - {zip_code}\n{country}".strip()
 
-        # 🔥 Determine Status based on Method
-        # COD -> 'Pending' Payment, 'Processing' Order (Confirmed)
-        # Online -> 'Pending' Payment, 'Pending' Order (Until Verified)
         initial_order_status = 'Processing' if payment_method == 'COD' else 'Pending'
 
         order = Order.objects.create(
@@ -317,7 +294,7 @@ class CheckoutView(views.APIView):
             total_amount=total_amount,
             payment_status='Pending',
             order_status=initial_order_status, 
-            payment_method=payment_method # 🔥 Save Method (Ensure model has this field)
+            payment_method=payment_method
         )
 
         for item in order_line_items:
@@ -329,7 +306,6 @@ class CheckoutView(views.APIView):
                 quantity=item["quantity"],
             )
             
-            # 🔥 DEDUCT STOCK IMMEDIATELY FOR COD
             if payment_method == 'COD':
                 variant = item['variant_obj']
                 variant.stock -= item['quantity']
@@ -337,9 +313,7 @@ class CheckoutView(views.APIView):
 
         # 5. Response Logic
         if payment_method == 'COD':
-            # Clear Cart for COD immediately
             Cart.objects.filter(user=request.user).delete()
-            
             return Response({
                 "id": order.id,
                 "message": "Order placed successfully via Cash on Delivery!",
@@ -349,7 +323,6 @@ class CheckoutView(views.APIView):
             }, status=status.HTTP_201_CREATED)
 
         else:
-            # Online: Create Razorpay Order
             try:
                 rzp_order = razorpay_create_order(total_amount, currency="INR")
             except Exception as exc:
@@ -368,7 +341,7 @@ class CheckoutView(views.APIView):
                 "order_status": order.order_status,
             }, status=status.HTTP_201_CREATED)
 
-# ... (Keep Cart & Address Views Unchanged) ...
+# ... (Keep Cart & Address Views as they were) ...
 class CartView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request):

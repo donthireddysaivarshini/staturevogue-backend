@@ -5,7 +5,7 @@ pip install requests
 
 settings change:
   FRONTEND_URL = "https://your-production-domain.com"
-pip install twilio
+
 
 Email: admin@staturevogue.com
 Password:admin123
