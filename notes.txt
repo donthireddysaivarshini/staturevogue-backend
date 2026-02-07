@@ -7,7 +7,5 @@ settings change:
   FRONTEND_URL = "https://your-production-domain.com"
 
 
-Email: admin@staturevogue.com
-Password:admin123
 
 pip install python-dotenv
