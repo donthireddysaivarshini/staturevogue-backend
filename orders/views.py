@@ -250,7 +250,7 @@ class CheckoutView(views.APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            final_price = variant.price_override if variant.price_override else variant.product.price
+            final_price = variant.product.price + (variant.price_override or 0)
             subtotal += final_price * quantity
 
             order_line_items.append({
@@ -296,6 +296,25 @@ class CheckoutView(views.APIView):
             order_status=initial_order_status, 
             payment_method=payment_method
         )
+        if request.data.get("save_as_default"):
+            # 1. Unmark existing defaults
+            SavedAddress.objects.filter(user=request.user, is_default=True).update(is_default=False)
+            
+            # 2. Create new saved address
+            SavedAddress.objects.create(
+                user=request.user,
+                label="Home", # Default label
+                first_name=first_name,
+                last_name=last_name,
+                address=address,
+                apartment=apartment,
+                city=city,
+                state=state,
+                zip_code=zip_code,
+                country=country,
+                phone=phone,
+                is_default=True
+            )
 
         for item in order_line_items:
             OrderItem.objects.create(
